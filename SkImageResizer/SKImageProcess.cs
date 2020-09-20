@@ -2,6 +2,7 @@ using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.IO;
+using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using SkiaSharp;
@@ -54,8 +55,9 @@ namespace SkImageResizer
             }
 
             var allFiles = FindImages(sourcePath);
-
-            await Task.Run(() => Parallel.ForEach(allFiles, async filePath => await SetResizeImageAsync(filePath, destPath, scale)));
+            IEnumerable<Task> tskResizeImageAsyncs = 
+                allFiles.Select(filePath => SetResizeImageAsync(filePath, destPath, scale));
+            await Task.WhenAll(tskResizeImageAsyncs);
         }
 
         private async Task SetResizeImageAsync(string filePath, string destPath, double scale)
@@ -63,15 +65,14 @@ namespace SkImageResizer
             var imgName = Path.GetFileNameWithoutExtension(filePath);
             var bitmap = SKBitmap.Decode(filePath);
 
-            using var scaledBitmap = await GetscaledBitmapAsync(bitmap, scale);
-            using var scaledImage = await GetScaledImageAsync(scaledBitmap);
-            using var data = await GetDataAsync(scaledImage);
+            using var scaledBitmap = await GetScaledBitmapAsync(bitmap, scale);//2 sec
+            using var scaledImage = SKImage.FromBitmap(scaledBitmap);
+            using var data = scaledImage.Encode(SKEncodedImageFormat.Jpeg, 100);
 
-            using var s = File.OpenWrite(Path.Combine(destPath, $"{imgName}.jpg"));
-            await SaveDataAsync(data, s);
+            await File.WriteAllBytesAsync(Path.Combine(destPath, $"{imgName}.jpg"), data.ToArray());
         }
 
-        private async Task<SKBitmap> GetscaledBitmapAsync(SKBitmap bitmap, double scale)
+        private async Task<SKBitmap> GetScaledBitmapAsync(SKBitmap bitmap, double scale)
         {
             var imgPhoto = SKImage.FromBitmap(bitmap);
 
@@ -85,11 +86,7 @@ namespace SkImageResizer
                 new SKImageInfo(destinationWidth, destinationHeight),
                 SKFilterQuality.High));
         }
-        private async Task<SKImage> GetScaledImageAsync(SKBitmap scaledBitmap) => await Task.Run(() => SKImage.FromBitmap(scaledBitmap));
-        private async Task<SKData> GetDataAsync(SKImage scaledImage) => await Task.Run(() => scaledImage.Encode(SKEncodedImageFormat.Jpeg, 100));
-        private async Task SaveDataAsync(SKData data, FileStream fs) => await Task.Run(() => data.SaveTo(fs));
-
-
+        
         /// <summary>
         /// 清空目的目錄下的所有檔案與目錄
         /// </summary>
